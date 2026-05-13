@@ -725,3 +725,74 @@ func TestExecuteCmdReturnsErrorWhenFallbackReadFails(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestExecuteCmdEscapesReturnedJobIdentityInSpoolAndPurgePaths(t *testing.T) {
+	escapedBase := "/zosmf/restjobs/jobs/USS%2FCMD%3FA%23B%20C%252F/JOB%2F123%3FA%23B%20C%252F"
+
+	client := newTestClient(t, &scriptedTransport{
+		t: t,
+		handlers: []roundTripFunc{
+			func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusCreated,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"jobid":"JOB/123?A#B C%2F","jobname":"USS/CMD?A#B C%2F","status":"ACTIVE"}`)),
+				}, nil
+			},
+			func(req *http.Request) (*http.Response, error) {
+				if got := req.URL.EscapedPath(); got != escapedBase {
+					t.Fatalf("unexpected wait escaped path: got %q want %q", got, escapedBase)
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"jobid":"JOB/123?A#B C%2F","jobname":"USS/CMD?A#B C%2F","status":"OUTPUT"}`)),
+				}, nil
+			},
+			func(req *http.Request) (*http.Response, error) {
+				want := escapedBase + "/files"
+				if got := req.URL.EscapedPath(); got != want {
+					t.Fatalf("unexpected files escaped path: got %q want %q", got, want)
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`[{"id":1,"ddname":"STDOUT"}]`)),
+				}, nil
+			},
+			func(req *http.Request) (*http.Response, error) {
+				want := escapedBase + "/files/1/records"
+				if got := req.URL.EscapedPath(); got != want {
+					t.Fatalf("unexpected records escaped path: got %q want %q", got, want)
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("ok")),
+				}, nil
+			},
+			func(req *http.Request) (*http.Response, error) {
+				if got := req.URL.EscapedPath(); got != escapedBase {
+					t.Fatalf("unexpected purge escaped path: got %q want %q", got, escapedBase)
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusNoContent,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("")),
+				}, nil
+			},
+		},
+	})
+
+	output, err := ExecuteCmd(client, "uname -a")
+	if err != nil {
+		t.Fatalf("ExecuteCmd returned error: %v", err)
+	}
+	if output != "--- STDOUT ---\nok" {
+		t.Fatalf("unexpected output: got %q", output)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/umutyurdugull/GoFrame.PROD/core"
@@ -77,7 +78,7 @@ func collectCommandOutput(client *core.Client, jobResp *jobs.JobResponse) (strin
 func listSpoolFiles(client *core.Client, jobName, jobId string) ([]jobs.JobFile, error) {
 	resp, err := client.Do(
 		http.MethodGet,
-		fmt.Sprintf("/zosmf/restjobs/jobs/%s/%s/files", jobName, jobId),
+		ussJobFilesPath(jobName, jobId),
 		nil,
 		nil,
 		http.StatusOK,
@@ -125,7 +126,7 @@ func selectCommandOutput(client *core.Client, jobName, jobId string, files []job
 func readSpool(client *core.Client, jobName, jobId string, fileId int) (string, error) {
 	resp, err := client.Do(
 		http.MethodGet,
-		fmt.Sprintf("/zosmf/restjobs/jobs/%s/%s/files/%d/records", jobName, jobId, fileId),
+		ussJobRecordsPath(jobName, jobId, fileId),
 		nil,
 		nil,
 		http.StatusOK,
@@ -136,6 +137,18 @@ func readSpool(client *core.Client, jobName, jobId string, fileId int) (string, 
 
 	cleanContent := strings.ReplaceAll(string(resp.Body), "\x00", "")
 	return cleanContent, nil
+}
+
+func ussJobPath(jobName, jobId string) string {
+	return fmt.Sprintf("/zosmf/restjobs/jobs/%s/%s", url.PathEscape(jobName), url.PathEscape(jobId))
+}
+
+func ussJobFilesPath(jobName, jobId string) string {
+	return fmt.Sprintf("%s/files", ussJobPath(jobName, jobId))
+}
+
+func ussJobRecordsPath(jobName, jobId string, fileId int) string {
+	return fmt.Sprintf("%s/%d/records", ussJobFilesPath(jobName, jobId), fileId)
 }
 
 func purgeJob(client *core.Client, jobName, jobId string) {

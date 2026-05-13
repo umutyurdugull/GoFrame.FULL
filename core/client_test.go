@@ -130,9 +130,9 @@ func TestClientDoMapsHTTPError(t *testing.T) {
 		t.Fatalf("unexpected URL: got %q", httpErr.URL)
 	}
 
-	if got := httpErr.Error(); got != "GET https://example.com/zosmf/restjobs/jobs returned status 502: upstream failed" {
-		t.Fatalf("unexpected error string: got %q", got)
-	}
+	if got := httpErr.Error(); got != "GET https://example.com/zosmf/restjobs/jobs returned status 502: response body omitted (15 byte(s))" {
+	t.Fatalf("unexpected error string: got %q", got)
+}
 }
 
 func TestClientDoMapsHTTPErrorWithoutBody(t *testing.T) {
