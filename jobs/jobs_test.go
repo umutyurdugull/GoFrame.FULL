@@ -957,6 +957,8 @@ func TestJobPathEscapesJobNameAndIDSegments(t *testing.T) {
 	jobName := "JOB/NAME?A#B C%2F"
 	jobID := "JOB/123?A#B C%2F"
 
+
+	
 	if got, want := jobPath(jobName, jobID), "/zosmf/restjobs/jobs/JOB%2FNAME%3FA%23B%20C%252F/JOB%2F123%3FA%23B%20C%252F"; got != want {
 		t.Fatalf("unexpected escaped job path: got %q want %q", got, want)
 	}
