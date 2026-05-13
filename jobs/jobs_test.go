@@ -444,6 +444,38 @@ func TestWaitWithContextReturnsContextError(t *testing.T) {
 	}
 }
 
+func TestWaitWithOptionsContextReturnsBoundedError(t *testing.T) {
+	client := newTestClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("unexpected method: got %s", req.Method)
+		}
+		if req.URL.Path != "/zosmf/restjobs/jobs/TESTJOB/JOB123" {
+			t.Fatalf("unexpected path: got %s", req.URL.Path)
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"jobid":"JOB123","jobname":"TESTJOB","status":"ACTIVE"}`)),
+		}, nil
+	}))
+	
+
+	resp, err := WaitWithOptionsContext(context.Background(), client, "JOB123", "TESTJOB", WaitOptions{MaxPolls: 1})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response, got %+v", resp)
+	}
+	if !strings.Contains(err.Error(), "did not reach OUTPUT after 1 poll(s)") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "TESTJOB [JOB123]") {
+		t.Fatalf("unexpected error details: %v", err)
+	}
+}
+
 func TestWaitReturnsDecodeErrorForMalformedJobStatusJSON(t *testing.T) {
 	client := newTestClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.Method != http.MethodGet {

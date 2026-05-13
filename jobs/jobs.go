@@ -67,7 +67,7 @@ func Wait(client *core.Client, jobId, jobName string) (*JobResponse, error) {
 }
 
 func WaitWithContext(ctx context.Context, client *core.Client, jobId, jobName string) (*JobResponse, error) {
-	return waitForJobWithContext(ctx, client, jobId, jobName, waitPollInterval, 0)
+	return WaitWithOptionsContext(ctx, client, jobId, jobName, WaitOptions{})
 }
 
 func WaitWithOptions(client *core.Client, jobId, jobName string, opts WaitOptions) (*JobResponse, error) {
@@ -80,6 +80,18 @@ func WaitWithOptions(client *core.Client, jobId, jobName string, opts WaitOption
 	}
 
 	return waitForJob(client, jobId, jobName, pollInterval, opts.MaxPolls, time.Sleep)
+}
+
+func WaitWithOptionsContext(ctx context.Context, client *core.Client, jobId, jobName string, opts WaitOptions) (*JobResponse, error) {
+	pollInterval := opts.PollInterval
+	if pollInterval < 0 {
+		pollInterval = 0
+	}
+	if pollInterval == 0 {
+		pollInterval = waitPollInterval
+	}
+
+	return waitForJobWithContext(ctx, client, jobId, jobName, pollInterval, opts.MaxPolls)
 }
 
 func GetOutput(client *core.Client, jobId, jobName string) (string, error) {
