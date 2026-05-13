@@ -131,8 +131,30 @@ func TestClientDoMapsHTTPError(t *testing.T) {
 	}
 
 	if got := httpErr.Error(); got != "GET https://example.com/zosmf/restjobs/jobs returned status 502: response body omitted (15 byte(s))" {
-	t.Fatalf("unexpected error string: got %q", got)
+		t.Fatalf("unexpected error string: got %q", got)
+	}
 }
+
+func TestHTTPErrorErrorRedactsBodyButPreservesBodyField(t *testing.T) {
+	body := []byte("secret=top-secret-token\nrequest body with sensitive details")
+
+	err := &HTTPError{
+		Method:     http.MethodPost,
+		URL:        "https://example.com/zosmf/restfiles/ds/USER.SECRET",
+		StatusCode: http.StatusInternalServerError,
+		Body:       body,
+	}
+
+	got := err.Error()
+	if strings.Contains(got, "top-secret-token") || strings.Contains(got, "request body with sensitive details") {
+		t.Fatalf("expected error string to redact body, got %q", got)
+	}
+	if !strings.Contains(got, "response body omitted") {
+		t.Fatalf("expected redaction marker, got %q", got)
+	}
+	if string(err.Body) != string(body) {
+		t.Fatalf("expected raw body to remain available to callers")
+	}
 }
 
 func TestClientDoMapsHTTPErrorWithoutBody(t *testing.T) {

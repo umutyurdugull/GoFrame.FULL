@@ -92,7 +92,7 @@ func (e *HTTPError) Error() string {
 	if len(e.Body) == 0 {
 		return fmt.Sprintf("%s %s returned status %d", e.Method, e.URL, e.StatusCode)
 	}
-	return fmt.Sprintf("%s %s returned status %d: %s", e.Method, e.URL, e.StatusCode, string(e.Body))
+	return fmt.Sprintf("%s %s returned status %d: response body omitted (%d byte(s))", e.Method, e.URL, e.StatusCode, len(e.Body))
 }
 
 func NewClient(baseURL string, opts ...ClientOption) (*Client, error) {
