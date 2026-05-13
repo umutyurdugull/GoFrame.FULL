@@ -952,3 +952,60 @@ func captureStdout(t *testing.T, fn func()) string {
 
 	return string(captured)
 }
+
+func TestJobPathEscapesJobNameAndIDSegments(t *testing.T) {
+	jobName := "JOB/NAME?A#B C%2F"
+	jobID := "JOB/123?A#B C%2F"
+
+	if got, want := jobPath(jobName, jobID), "/zosmf/restjobs/jobs/JOB%2FNAME%3FA%23B%20C%252F/JOB%2F123%3FA%23B%20C%252F"; got != want {
+		t.Fatalf("unexpected escaped job path: got %q want %q", got, want)
+	}
+
+	if got, want := jobFilesPath(jobName, jobID), "/zosmf/restjobs/jobs/JOB%2FNAME%3FA%23B%20C%252F/JOB%2F123%3FA%23B%20C%252F/files"; got != want {
+		t.Fatalf("unexpected escaped job files path: got %q want %q", got, want)
+	}
+
+	if got, want := jobRecordsPath(jobName, jobID, 7), "/zosmf/restjobs/jobs/JOB%2FNAME%3FA%23B%20C%252F/JOB%2F123%3FA%23B%20C%252F/files/7/records"; got != want {
+		t.Fatalf("unexpected escaped job records path: got %q want %q", got, want)
+	}
+}
+func TestGetOutputEscapesJobIdentityInRequestPath(t *testing.T) {
+	jobName := "JOB/NAME?A#B C%2F"
+	jobID := "JOB/123?A#B C%2F"
+
+	client := newTestClient(t, &scriptedTransport{
+		t: t,
+		handlers: []roundTripFunc{
+			func(req *http.Request) (*http.Response, error) {
+				if got, want := req.URL.EscapedPath(), "/zosmf/restjobs/jobs/JOB%2FNAME%3FA%23B%20C%252F/JOB%2F123%3FA%23B%20C%252F/files"; got != want {
+					t.Fatalf("unexpected files escaped path: got %q want %q", got, want)
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`[{"id":7,"ddname":"JESMSGLG"}]`)),
+				}, nil
+			},
+			func(req *http.Request) (*http.Response, error) {
+				if got, want := req.URL.EscapedPath(), "/zosmf/restjobs/jobs/JOB%2FNAME%3FA%23B%20C%252F/JOB%2F123%3FA%23B%20C%252F/files/7/records"; got != want {
+					t.Fatalf("unexpected records escaped path: got %q want %q", got, want)
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("spool output")),
+				}, nil
+			},
+		},
+	})
+
+	output, err := GetOutput(client, jobID, jobName)
+	if err != nil {
+		t.Fatalf("GetOutput returned error: %v", err)
+	}
+	if output != "spool output" {
+		t.Fatalf("unexpected output: got %q", output)
+	}
+}
