@@ -250,9 +250,8 @@ func jobsListPath(encodedQuery string) string {
 	}
 	return fmt.Sprintf("%s?%s", jobsPath(), encodedQuery)
 }
-
 func jobPath(jobName, jobId string) string {
-	return fmt.Sprintf("%s/%s/%s", jobsPath(), jobName, jobId)
+	return fmt.Sprintf("%s/%s/%s", jobsPath(), url.PathEscape(jobName), url.PathEscape(jobId))
 }
 
 func jobFilesPath(jobName, jobId string) string {
@@ -262,6 +261,7 @@ func jobFilesPath(jobName, jobId string) string {
 func jobRecordsPath(jobName, jobId string, fileID int) string {
 	return fmt.Sprintf("%s/%d/records", jobFilesPath(jobName, jobId), fileID)
 }
+
 
 func normalizeJobStatus(status string) string {
 	return strings.ToUpper(strings.TrimSpace(status))
