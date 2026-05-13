@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -176,8 +177,64 @@ func (c *Client) NewRequest(method, path string, body io.Reader, headers http.He
 	return req, nil
 }
 
+func (c *Client) NewRequestWithContext(ctx context.Context, method, path string, body io.Reader, headers http.Header) (*http.Request, error) {
+	requestURL, err := c.resolveURL(path)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, requestURL, body)
+	if err != nil {
+		return nil, err
+	}
+
+	applyHeaders(req.Header, c.defaultHeaders)
+	applyHeaders(req.Header, headers)
+
+	if c.auth != nil {
+		if err := c.auth.Apply(req); err != nil {
+			return nil, err
+		}
+	}
+
+	return req, nil
+}
+
 func (c *Client) Do(method, path string, body io.Reader, headers http.Header, expectedStatus ...int) (*Response, error) {
 	req, err := c.NewRequest(method, path, body, headers)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(expectedStatus) > 0 && !matchesStatus(resp.StatusCode, expectedStatus) {
+		return nil, &HTTPError{
+			Method:     method,
+			URL:        req.URL.String(),
+			StatusCode: resp.StatusCode,
+			Body:       respBody,
+		}
+	}
+
+	return &Response{
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header.Clone(),
+		Body:       respBody,
+	}, nil
+}
+
+func (c *Client) DoWithContext(ctx context.Context, method, path string, body io.Reader, headers http.Header, expectedStatus ...int) (*Response, error) {
+	req, err := c.NewRequestWithContext(ctx, method, path, body, headers)
 	if err != nil {
 		return nil, err
 	}

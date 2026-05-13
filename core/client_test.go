@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -52,6 +53,50 @@ func TestClientNewRequestBuildsURLHeadersAndAuth(t *testing.T) {
 	}
 }
 
+func TestClientNewRequestWithContextBuildsRequestAndUsesContext(t *testing.T) {
+	client, err := NewClient("https://example.com/", WithAuthenticator(NewBasicAuth("USER", "PASS")))
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := client.NewRequestWithContext(ctx, http.MethodPost, "/zosmf/restfiles/ds/USER.TEST", strings.NewReader("body"), http.Header{
+		"Content-Type": []string{"text/plain"},
+		"X-Test":       []string{"value"},
+	})
+	if err != nil {
+		t.Fatalf("NewRequestWithContext returned error: %v", err)
+	}
+
+	if got, want := req.URL.String(), "https://example.com/zosmf/restfiles/ds/USER.TEST"; got != want {
+		t.Fatalf("unexpected URL: got %q want %q", got, want)
+	}
+	if got := req.Header.Get("X-CSRF-ZOSMF-HEADER"); got != "true" {
+		t.Fatalf("missing default header, got %q", got)
+	}
+	if got := req.Header.Get("Content-Type"); got != "text/plain" {
+		t.Fatalf("unexpected Content-Type: got %q", got)
+	}
+	if got := req.Header.Get("X-Test"); got != "value" {
+		t.Fatalf("unexpected custom header: got %q", got)
+	}
+
+	user, pass, ok := req.BasicAuth()
+	if !ok {
+		t.Fatal("expected basic auth header to be set")
+	}
+	if user != "USER" || pass != "PASS" {
+		t.Fatalf("unexpected basic auth credentials: got %q/%q", user, pass)
+	}
+
+	cancel()
+	select {
+	case <-req.Context().Done():
+	default:
+		t.Fatal("expected request context to observe cancellation")
+	}
+}
+
 func TestClientDoSendsRequestAndReturnsBody(t *testing.T) {
 	httpClient := &http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -83,6 +128,57 @@ func TestClientDoSendsRequestAndReturnsBody(t *testing.T) {
 		t.Fatalf("unexpected status code: got %d", resp.StatusCode)
 	}
 
+	if got := string(resp.Body); got != `{"ok":true}` {
+		t.Fatalf("unexpected body: got %q", got)
+	}
+}
+
+func TestClientDoWithContextSendsRequestAndUsesContext(t *testing.T) {
+	type contextKey string
+	key := contextKey("request-id")
+
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if got := req.Context().Value(key); got != "ctx-123" {
+				t.Fatalf("unexpected context value: got %v", got)
+			}
+			if got := req.URL.String(); got != "https://example.com/zosmf/info" {
+				t.Fatalf("unexpected URL: got %q", got)
+			}
+			if got := req.Header.Get("X-CSRF-ZOSMF-HEADER"); got != "true" {
+				t.Fatalf("missing default header: got %q", got)
+			}
+			if got := req.Header.Get("X-Test"); got != "value" {
+				t.Fatalf("unexpected custom header: got %q", got)
+			}
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+			}, nil
+		}),
+	}
+
+	client, err := NewClient("https://example.com", WithHTTPClient(httpClient))
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	ctx := context.WithValue(context.Background(), key, "ctx-123")
+	resp, err := client.DoWithContext(ctx, http.MethodGet, "/zosmf/info", nil, http.Header{
+		"X-Test": []string{"value"},
+	}, http.StatusOK)
+	if err != nil {
+		t.Fatalf("DoWithContext returned error: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "application/json" {
+		t.Fatalf("unexpected response content type: got %q", got)
+	}
 	if got := string(resp.Body); got != `{"ok":true}` {
 		t.Fatalf("unexpected body: got %q", got)
 	}
