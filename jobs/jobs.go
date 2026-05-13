@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -63,6 +64,10 @@ func Submit(client *core.Client, jcl string) (*JobResponse, error) {
 
 func Wait(client *core.Client, jobId, jobName string) (*JobResponse, error) {
 	return waitForJob(client, jobId, jobName, waitPollInterval, 0, time.Sleep)
+}
+
+func WaitWithContext(ctx context.Context, client *core.Client, jobId, jobName string) (*JobResponse, error) {
+	return waitForJobWithContext(ctx, client, jobId, jobName, waitPollInterval, 0)
 }
 
 func WaitWithOptions(client *core.Client, jobId, jobName string, opts WaitOptions) (*JobResponse, error) {
@@ -176,8 +181,72 @@ func waitForJob(client *core.Client, jobId, jobName string, pollInterval time.Du
 	}
 }
 
+func waitForJobWithContext(ctx context.Context, client *core.Client, jobId, jobName string, pollInterval time.Duration, maxPolls int) (*JobResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	polls := 0
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		jobResp, err := getJobWithContext(ctx, client, jobName, jobId)
+		if err != nil {
+			return nil, err
+		}
+
+		if normalizeJobStatus(jobResp.Status) == "OUTPUT" {
+			return jobResp, nil
+		}
+
+		if err := terminalJobError(jobResp, jobName, jobId); err != nil {
+			return nil, err
+		}
+
+		polls++
+		if maxPolls > 0 && polls >= maxPolls {
+			resolvedJobName, resolvedJobID := resolveJobIdentity(jobResp, jobName, jobId)
+			return nil, fmt.Errorf("job %s [%s] did not reach OUTPUT after %d poll(s); last status: %s", resolvedJobName, resolvedJobID, polls, strings.TrimSpace(jobResp.Status))
+		}
+
+		if pollInterval > 0 {
+			timer := time.NewTimer(pollInterval)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+}
+
 func getJob(client *core.Client, jobName, jobId string) (*JobResponse, error) {
 	resp, err := client.Do(http.MethodGet, jobPath(jobName, jobId), nil, nil, http.StatusOK)
+	if err != nil {
+		return nil, fmt.Errorf("get job status for %s [%s]: %w", jobName, jobId, err)
+	}
+
+	var jobResp JobResponse
+	if err := json.Unmarshal(resp.Body, &jobResp); err != nil {
+		return nil, fmt.Errorf("decode job status response for %s [%s]: %w", jobName, jobId, err)
+	}
+
+	jobResp.JobName, jobResp.JobId = resolveJobIdentity(&jobResp, jobName, jobId)
+
+	return &jobResp, nil
+}
+
+func getJobWithContext(ctx context.Context, client *core.Client, jobName, jobId string) (*JobResponse, error) {
+	resp, err := client.DoWithContext(ctx, http.MethodGet, jobPath(jobName, jobId), nil, nil, http.StatusOK)
 	if err != nil {
 		return nil, fmt.Errorf("get job status for %s [%s]: %w", jobName, jobId, err)
 	}
@@ -261,7 +330,6 @@ func jobFilesPath(jobName, jobId string) string {
 func jobRecordsPath(jobName, jobId string, fileID int) string {
 	return fmt.Sprintf("%s/%d/records", jobFilesPath(jobName, jobId), fileID)
 }
-
 
 func normalizeJobStatus(status string) string {
 	return strings.ToUpper(strings.TrimSpace(status))

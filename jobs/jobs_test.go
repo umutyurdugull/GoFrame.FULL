@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -415,6 +416,31 @@ func TestWaitWithOptionsReturnsBoundedError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "TESTJOB [JOB123]") {
 		t.Fatalf("unexpected error details: %v", err)
+	}
+}
+
+func TestWaitWithContextReturnsContextError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	client := newTestClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cancel()
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"jobid":"JOB123","jobname":"TESTJOB","status":"ACTIVE"}`)),
+		}, nil
+	}))
+
+	resp, err := WaitWithContext(ctx, client, "JOB123", "TESTJOB")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response, got %+v", resp)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }
 
@@ -957,8 +983,6 @@ func TestJobPathEscapesJobNameAndIDSegments(t *testing.T) {
 	jobName := "JOB/NAME?A#B C%2F"
 	jobID := "JOB/123?A#B C%2F"
 
-
-
 	if got, want := jobPath(jobName, jobID), "/zosmf/restjobs/jobs/JOB%2FNAME%3FA%23B%20C%252F/JOB%2F123%3FA%23B%20C%252F"; got != want {
 		t.Fatalf("unexpected escaped job path: got %q want %q", got, want)
 	}
@@ -1011,5 +1035,3 @@ func TestGetOutputEscapesJobIdentityInRequestPath(t *testing.T) {
 		t.Fatalf("unexpected output: got %q", output)
 	}
 }
-
-
